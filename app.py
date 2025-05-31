@@ -23,41 +23,29 @@ def parse_kml_lines_debug(kml_text):
     found = 0
     for linestring in root.findall('.//kml:LineString', ns):
         coords_text_elem = linestring.find('kml:coordinates', ns)
-        if coords_text_elem is None:
-            st.warning("⚠️ <coordinates> tidak ditemukan dalam LineString.")
-            continue
-
-        if coords_text_elem.text is None:
-            st.warning("⚠️ <coordinates> kosong.")
-            continue
+        if coords_text_elem is None or coords_text_elem.text is None:
+            continue  # Langsung skip
 
         coords_raw = coords_text_elem.text.strip().split()
         coords = []
 
-        for i, coord in enumerate(coords_raw):
-            if not coord.strip():
-                st.warning(f"⚠️ Baris kosong di koordinat #{i+1}.")
-                continue
-
+        for coord in coords_raw:
             parts = coord.strip().split(',')
-            if len(parts) < 2:
-                st.warning(f"⚠️ Koordinat tidak lengkap (kurang dari 2 angka): '{coord}'")
-                continue
+            if len(parts) >= 2:
+                try:
+                    lon = float(parts[0])
+                    lat = float(parts[1])
+                    coords.append((lon, lat))
+                except:
+                    continue  # Abaikan jika tidak bisa dikonversi
 
+        if len(coords) >= 2:
             try:
-                lon = float(parts[0])
-                lat = float(parts[1])
-                coords.append((lon, lat))
-            except ValueError:
-                st.warning(f"⚠️ Koordinat tidak bisa dikonversi: '{coord}'")
-                continue
-
-        if len(coords) < 2:
-            st.warning("⚠️ LineString dilewati: jumlah koordinat valid kurang dari 2.")
-            continue
-
-        lines.append(LineString(coords))
-        found += 1
+                line = LineString(coords)
+                lines.append(line)
+                found += 1
+            except:
+                continue  # Jika LineString gagal dibuat, skip
 
     st.info(f"✅ Total LineString valid: {found}")
     return lines
