@@ -6,25 +6,21 @@ from lxml import etree
 import folium
 from streamlit_folium import st_folium
 
-# Fungsi parsing KML dengan debug info
-def parse_kml_lines_debug(kml_text):
-    import xml.etree.ElementTree as ET
-    from shapely.geometry import LineString
-
+# Fungsi parsing KML dengan toleransi tinggi
+def parse_kml_lines_tolerant(kml_text):
     lines = []
     ns = {'kml': 'http://www.opengis.net/kml/2.2'}
 
     try:
         root = ET.fromstring(kml_text)
     except ET.ParseError as e:
-        st.error(f"❌ Error parsing XML: {e}")
+        st.error(f"❌ Gagal parsing XML: {e}")
         return []
 
-    found = 0
     for linestring in root.findall('.//kml:LineString', ns):
         coords_text_elem = linestring.find('kml:coordinates', ns)
         if coords_text_elem is None or coords_text_elem.text is None:
-            continue  # Langsung skip
+            continue
 
         coords_raw = coords_text_elem.text.strip().split()
         coords = []
@@ -37,39 +33,33 @@ def parse_kml_lines_debug(kml_text):
                     lat = float(parts[1])
                     coords.append((lon, lat))
                 except:
-                    continue  # Abaikan jika tidak bisa dikonversi
+                    continue
 
         if len(coords) >= 2:
             try:
                 line = LineString(coords)
                 lines.append(line)
-                found += 1
             except:
-                continue  # Jika LineString gagal dibuat, skip
+                continue
 
-    st.info(f"✅ Total LineString valid: {found}")
     return lines
 
-
-# Segmentasi titik pada garis
+# Fungsi segmentasi garis
 def segment_line(line: LineString, interval: float):
-    length = line.length
-    if length == 0:
+    if line.length == 0:
         return []
-    distances = [i for i in range(0, int(length), int(interval))]
+    distances = [i for i in range(0, int(line.length), int(interval))]
     points = [line.interpolate(d) for d in distances]
-    points.append(line.interpolate(length))
+    points.append(line.interpolate(line.length))
     return points
 
-# Buat KML baru dari titik segmentasi
+# Fungsi buat KML baru dari titik
 def create_kml_with_poles(lines, label_tiang, jarak_segmentasi):
     kml_doc = KML.kml(KML.Document(KML.Name("Generated KML with Poles")))
-    total_points = 0
     counter = 1
 
     for line in lines:
         points = segment_line(line, jarak_segmentasi)
-        total_points += len(points)
         for pt in points:
             kml_doc.Document.append(
                 KML.Placemark(
@@ -79,7 +69,7 @@ def create_kml_with_poles(lines, label_tiang, jarak_segmentasi):
             )
             counter += 1
 
-    return etree.tostring(kml_doc, pretty_print=True, xml_declaration=True, encoding='UTF-8'), total_points
+    return etree.tostring(kml_doc, pretty_print=True, xml_declaration=True, encoding='UTF-8'), counter - 1
 
 # UI Streamlit
 st.set_page_config(page_title="Auto Tambah Tiang ke KML", layout="wide")
@@ -88,14 +78,13 @@ st.title("📌 Auto Tambah Tiang ke KML")
 uploaded_file = st.file_uploader("Upload file KML", type=["kml"])
 label_tiang = st.selectbox("Pilih Label Tiang:", ["TE", "TN"])
 jarak_segmentasi = st.number_input("Jarak Segmentasi (meter):", min_value=1, value=30)
-jarak_antar_titik = st.number_input("Jarak Antar Titik (meter):", min_value=1, value=30)
 
 if uploaded_file:
     content = uploaded_file.read().decode('utf-8')
-    lines = parse_kml_lines_debug(content)
+    lines = parse_kml_lines_tolerant(content)
 
     if not lines:
-        st.error("❌ Tidak ditemukan LineString yang valid dalam file KML.")
+        st.error("❌ Tidak ditemukan LineString yang valid.")
     else:
         m = folium.Map(zoom_start=17)
         total_tiang = 0
@@ -103,15 +92,12 @@ if uploaded_file:
 
         for line in lines:
             coords = list(line.coords)
-            if len(coords) < 2:
-                continue
-
             folium.PolyLine(
                 locations=[(lat, lon) for lon, lat in coords],
                 color="blue"
             ).add_to(m)
 
-            points = segment_line(line, jarak_antar_titik)
+            points = segment_line(line, jarak_segmentasi)
             total_tiang += len(points)
 
             for pt in points:
@@ -128,8 +114,8 @@ if uploaded_file:
 
         st.success(f"✅ Total Tiang yang Ditambahkan: {total_tiang}")
 
-        # Download hasil
-        kml_output, _ = create_kml_with_poles(lines, label_tiang, jarak_antar_titik)
+        # Tombol download
+        kml_output, _ = create_kml_with_poles(lines, label_tiang, jarak_segmentasi)
         st.download_button(
             label="⬇️ Download KML dengan Tiang",
             data=kml_output,
