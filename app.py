@@ -1,16 +1,36 @@
 import streamlit as st
-from fastkml import kml
 from shapely.geometry import LineString, Point
 from shapely.ops import substring
-import math
+import xml.etree.ElementTree as ET
 from pykml.factory import KML_ElementMaker as KML
 from lxml import etree
 import folium
 from streamlit_folium import st_folium
 
+# Fungsi bantu: parsing KML dan ambil LineString
+def parse_kml_lines(kml_text):
+    lines = []
+    ns = {'kml': 'http://www.opengis.net/kml/2.2'}
+    root = ET.fromstring(kml_text)
+
+    for linestring in root.findall('.//kml:LineString', ns):
+        coords_text = linestring.find('kml:coordinates', ns)
+        if coords_text is not None:
+            coords = []
+            for coord in coords_text.text.strip().split():
+                parts = coord.split(',')
+                if len(parts) >= 2:
+                    lon, lat = float(parts[0]), float(parts[1])
+                    coords.append((lon, lat))
+            if len(coords) >= 2:
+                lines.append(LineString(coords))
+    return lines
+
 # Fungsi bantu untuk menambahkan titik setiap X meter
 def segment_line(line: LineString, interval: float):
     length = line.length
+    if length == 0:
+        return []
     points = []
     distances = [i for i in range(0, int(length), int(interval))]
     for d in distances:
@@ -19,19 +39,7 @@ def segment_line(line: LineString, interval: float):
     points.append(line.interpolate(length))
     return points
 
-# Fungsi untuk ekstrak semua LineString dari file KML
-def extract_lines(kml_obj):
-    lines = []
-    def recurse(features):
-        for f in features:
-            if hasattr(f, 'geometry') and isinstance(f.geometry, LineString):
-                lines.append(f.geometry)
-            elif hasattr(f, 'features'):
-                recurse(f.features())
-    recurse(kml_obj.features())
-    return lines
-
-# Fungsi untuk membuat file KML baru dengan titik-titik (tiang)
+# Fungsi buat KML baru dengan titik tambahan
 def create_kml_with_poles(lines, label_tiang, jarak_segmentasi):
     kml_doc = KML.kml(
         KML.Document(
@@ -67,43 +75,47 @@ jarak_segmentasi = st.number_input("Jarak Segmentasi (meter):", min_value=1, val
 jarak_antar_titik = st.number_input("Jarak Antar Titik (meter):", min_value=1, value=30)
 
 if uploaded_file:
-    k = kml.KML()
     content = uploaded_file.read().decode('utf-8')
-    k.from_string(content.encode('utf-8'))
+    lines = parse_kml_lines(content)
 
-    # Ambil semua LineString dari KML
-    lines = extract_lines(k)
+    if not lines:
+        st.error("Tidak ditemukan garis (LineString) di file KML.")
+    else:
+        # Tampilkan peta dengan garis dan titik
+        m = folium.Map(zoom_start=17)
+        total_tiang = 0
 
-    # Tampilkan peta dengan garis dan titik
-    m = folium.Map(zoom_start=17)
-    total_tiang = 0
+        for line in lines:
+            coords = list(line.coords)
+            if len(coords) < 2:
+                continue
 
-    for line in lines:
-        coords = list(line.coords)
-        folium.PolyLine(locations=[(pt[1], pt[0]) for pt in coords], color="blue").add_to(m)
-
-        points = segment_line(line, jarak_antar_titik)
-        total_tiang += len(points)
-
-        for pt in points:
-            color = "red" if label_tiang == "TE" else "green"
-            folium.Marker(
-                location=(pt.y, pt.x),
-                icon=folium.DivIcon(html=f"<div style='font-size:10px;color:{color}'>{label_tiang}</div>")
+            folium.PolyLine(
+                locations=[(lat, lon) for lon, lat in coords],
+                color="blue"
             ).add_to(m)
 
-    st.subheader("Preview Jalur dan Titik Tiang")
-    st_data = st_folium(m, width=700, height=500)
+            points = segment_line(line, jarak_antar_titik)
+            total_tiang += len(points)
 
-    # Tampilkan jumlah total tiang
-    st.success(f"Total Tiang yang Ditambahkan: {total_tiang}")
+            for pt in points:
+                color = "red" if label_tiang == "TE" else "green"
+                folium.Marker(
+                    location=(pt.y, pt.x),
+                    icon=folium.DivIcon(html=f"<div style='font-size:10px;color:{color}'>{label_tiang}</div>")
+                ).add_to(m)
 
-    # Proses dan hasilkan file KML baru
-    kml_output, _ = create_kml_with_poles(lines, label_tiang, jarak_antar_titik)
+        st.subheader("Preview Jalur dan Titik Tiang")
+        st_data = st_folium(m, width=700, height=500)
 
-    st.download_button(
-        label="Download KML dengan Tiang",
-        data=kml_output,
-        file_name="kml_dengan_tiang.kml",
-        mime='application/vnd.google-earth.kml+xml'
-    )
+        st.success(f"Total Tiang yang Ditambahkan: {total_tiang}")
+
+        # Buat dan download KML hasil
+        kml_output, _ = create_kml_with_poles(lines, label_tiang, jarak_antar_titik)
+
+        st.download_button(
+            label="Download KML dengan Tiang",
+            data=kml_output,
+            file_name="kml_dengan_tiang.kml",
+            mime='application/vnd.google-earth.kml+xml'
+        )
