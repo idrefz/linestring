@@ -13,32 +13,36 @@ def parse_kml_lines_debug(kml_text):
     try:
         root = ET.fromstring(kml_text)
     except ET.ParseError as e:
-        st.error(f"Error parsing XML: {e}")
+        st.error(f"❌ Gagal parsing XML: {e}")
         return []
 
     found = 0
     for linestring in root.findall('.//kml:LineString', ns):
-        found += 1
         coords_text = linestring.find('kml:coordinates', ns)
-        if coords_text is not None:
+        if coords_text is not None and coords_text.text:
             raw_coords = coords_text.text.strip().split()
-            st.write(f"📏 LineString #{found} - Titik: {len(raw_coords)}")
             coords = []
             for coord in raw_coords:
                 parts = coord.split(',')
                 if len(parts) >= 2:
                     try:
-                        lon, lat = float(parts[0]), float(parts[1])
+                        lon = float(parts[0])
+                        lat = float(parts[1])
                         coords.append((lon, lat))
                     except ValueError:
-                        st.warning(f"⚠️ Koordinat tidak valid: {coord}")
+                        st.warning(f"⚠️ Format tidak valid: {coord}")
+                else:
+                    st.warning(f"⚠️ Koordinat rusak: {coord} (kurang dari 2 elemen)")
+
             if len(coords) >= 2:
                 lines.append(LineString(coords))
+                found += 1
             else:
-                st.warning(f"⚠️ LineString #{found} dilewati (titik < 2)")
+                st.warning(f"⚠️ Dilewati: hanya {len(coords)} titik valid.")
         else:
-            st.warning(f"⚠️ LineString #{found} tidak punya <coordinates>")
-    st.info(f"✅ Total LineString valid: {len(lines)}")
+            st.warning("⚠️ Tidak ada <coordinates> atau kosong.")
+    
+    st.info(f"✅ Total LineString valid: {found}")
     return lines
 
 # Segmentasi titik pada garis
