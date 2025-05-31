@@ -1,7 +1,6 @@
-
 streamlit
+shapely
+pykml
+lxml
 folium
 streamlit-folium
-fastkml
-shapely
-lxml
