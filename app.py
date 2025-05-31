@@ -64,12 +64,17 @@ if uploaded_file:
     k.from_string(content.encode('utf-8'))
 
     # Ambil semua LineString dari KML
+    lines = extract_lines(k)
+   def extract_lines(kml_obj):
     lines = []
-    for document in k.features():
-        for folder in document.features():
-            for placemark in folder.features():
-                if hasattr(placemark, 'geometry') and isinstance(placemark.geometry, LineString):
-                    lines.append(placemark.geometry)
+    def recurse(features):
+        for f in features:
+            if hasattr(f, 'geometry') and isinstance(f.geometry, LineString):
+                lines.append(f.geometry)
+            elif hasattr(f, 'features'):
+                recurse(f.features())
+    recurse(kml_obj.features())
+    return lines
 
     # Tampilkan peta
     m = folium.Map(zoom_start=17)
