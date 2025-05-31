@@ -8,42 +8,60 @@ from streamlit_folium import st_folium
 
 # Fungsi parsing KML dengan debug info
 def parse_kml_lines_debug(kml_text):
+    import xml.etree.ElementTree as ET
+    from shapely.geometry import LineString
+
     lines = []
     ns = {'kml': 'http://www.opengis.net/kml/2.2'}
+
     try:
         root = ET.fromstring(kml_text)
     except ET.ParseError as e:
-        st.error(f"❌ Gagal parsing XML: {e}")
+        st.error(f"❌ Error parsing XML: {e}")
         return []
 
     found = 0
     for linestring in root.findall('.//kml:LineString', ns):
-        coords_text = linestring.find('kml:coordinates', ns)
-        if coords_text is not None and coords_text.text:
-            raw_coords = coords_text.text.strip().split()
-            coords = []
-            for coord in raw_coords:
-                parts = coord.split(',')
-                if len(parts) >= 2:
-                    try:
-                        lon = float(parts[0])
-                        lat = float(parts[1])
-                        coords.append((lon, lat))
-                    except ValueError:
-                        st.warning(f"⚠️ Format tidak valid: {coord}")
-                else:
-                    st.warning(f"⚠️ Koordinat rusak: {coord} (kurang dari 2 elemen)")
+        coords_text_elem = linestring.find('kml:coordinates', ns)
+        if coords_text_elem is None:
+            st.warning("⚠️ <coordinates> tidak ditemukan dalam LineString.")
+            continue
 
-            if len(coords) >= 2:
-                lines.append(LineString(coords))
-                found += 1
-            else:
-                st.warning(f"⚠️ Dilewati: hanya {len(coords)} titik valid.")
-        else:
-            st.warning("⚠️ Tidak ada <coordinates> atau kosong.")
-    
+        if coords_text_elem.text is None:
+            st.warning("⚠️ <coordinates> kosong.")
+            continue
+
+        coords_raw = coords_text_elem.text.strip().split()
+        coords = []
+
+        for i, coord in enumerate(coords_raw):
+            if not coord.strip():
+                st.warning(f"⚠️ Baris kosong di koordinat #{i+1}.")
+                continue
+
+            parts = coord.strip().split(',')
+            if len(parts) < 2:
+                st.warning(f"⚠️ Koordinat tidak lengkap (kurang dari 2 angka): '{coord}'")
+                continue
+
+            try:
+                lon = float(parts[0])
+                lat = float(parts[1])
+                coords.append((lon, lat))
+            except ValueError:
+                st.warning(f"⚠️ Koordinat tidak bisa dikonversi: '{coord}'")
+                continue
+
+        if len(coords) < 2:
+            st.warning("⚠️ LineString dilewati: jumlah koordinat valid kurang dari 2.")
+            continue
+
+        lines.append(LineString(coords))
+        found += 1
+
     st.info(f"✅ Total LineString valid: {found}")
     return lines
+
 
 # Segmentasi titik pada garis
 def segment_line(line: LineString, interval: float):
