@@ -66,7 +66,7 @@ if uploaded_file:
     # Ambil semua LineString dari KML
     lines = extract_lines(k)
    def extract_lines(kml_obj):
-    lines = []
+    lines = extract_lines(k)
     def recurse(features):
         for f in features:
             if hasattr(f, 'geometry') and isinstance(f.geometry, LineString):
