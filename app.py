@@ -1,10 +1,7 @@
-
 import streamlit as st
 from fastkml import kml
 from shapely.geometry import LineString, Point
 from shapely.ops import substring
-import zipfile
-import io
 import math
 from pykml.factory import KML_ElementMaker as KML
 from lxml import etree
@@ -22,9 +19,20 @@ def segment_line(line: LineString, interval: float):
     points.append(line.interpolate(length))
     return points
 
-# Fungsi buat KML baru dengan titik tambahan
+# Fungsi untuk ekstrak semua LineString dari file KML
+def extract_lines(kml_obj):
+    lines = []
+    def recurse(features):
+        for f in features:
+            if hasattr(f, 'geometry') and isinstance(f.geometry, LineString):
+                lines.append(f.geometry)
+            elif hasattr(f, 'features'):
+                recurse(f.features())
+    recurse(kml_obj.features())
+    return lines
+
+# Fungsi untuk membuat file KML baru dengan titik-titik (tiang)
 def create_kml_with_poles(lines, label_tiang, jarak_segmentasi):
-    ns = '{http://www.opengis.net/kml/2.2}'
     kml_doc = KML.kml(
         KML.Document(
             KML.Name("Generated KML with Poles")
@@ -39,7 +47,7 @@ def create_kml_with_poles(lines, label_tiang, jarak_segmentasi):
         points = segment_line(line, jarak_segmentasi)
         total_points += len(points)
 
-        for idx, pt in enumerate(points):
+        for pt in points:
             placemark = KML.Placemark(
                 KML.name(f"{label_tiang}"),
                 KML.Point(
@@ -50,7 +58,7 @@ def create_kml_with_poles(lines, label_tiang, jarak_segmentasi):
 
     return etree.tostring(kml_doc, pretty_print=True, xml_declaration=True, encoding='UTF-8'), total_points
 
-# Streamlit UI
+# UI Streamlit
 st.title("Auto Tambah Tiang ke KML")
 
 uploaded_file = st.file_uploader("Upload file KML", type=["kml"])
@@ -65,24 +73,15 @@ if uploaded_file:
 
     # Ambil semua LineString dari KML
     lines = extract_lines(k)
-   def extract_lines(kml_obj):
-    lines = extract_lines(k)
-    def recurse(features):
-        for f in features:
-            if hasattr(f, 'geometry') and isinstance(f.geometry, LineString):
-                lines.append(f.geometry)
-            elif hasattr(f, 'features'):
-                recurse(f.features())
-    recurse(kml_obj.features())
-    return lines
 
-    # Tampilkan peta
+    # Tampilkan peta dengan garis dan titik
     m = folium.Map(zoom_start=17)
     total_tiang = 0
 
     for line in lines:
         coords = list(line.coords)
-        folium.PolyLine(locations=[(lat, lon) for lon, lat in coords], color="blue").add_to(m)
+        folium.PolyLine(locations=[(pt[1], pt[0]) for pt in coords], color="blue").add_to(m)
+
         points = segment_line(line, jarak_antar_titik)
         total_tiang += len(points)
 
